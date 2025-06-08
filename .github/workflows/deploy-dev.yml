@@ -6,7 +6,7 @@ on:
 
 env:
   ACR_NAME: myimagerepo
-  VM_IP: ${{ secrets.VM_IP }}
+  VM_IP: ${{ secrets.VM_IP_ADDRESS }}
   SSH_KEY: ${{ secrets.SSH_KEY }}
 
 jobs:
