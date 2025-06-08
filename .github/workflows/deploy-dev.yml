@@ -1,0 +1,48 @@
+name: Deploy to Dev
+
+on:
+  push:
+    branches: [aksdevremote]
+
+env:
+  ACR_NAME: myimagerepo
+  VM_IP: ${{ secrets.VM_IP }}
+  SSH_KEY: ${{ secrets.SSH_KEY }}
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Build Docker image
+        run: |
+          docker build -t ${{ env.ACR_NAME }}.azurecr.io/textutility:$GITHUB_SHA .
+
+      - name: Login to Azure
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Push to ACR
+        run: |
+          az acr login --name ${{ env.ACR_NAME }}
+          docker push ${{ env.ACR_NAME }}.azurecr.io/textutility:$GITHUB_SHA
+
+      - name: Deploy to VM
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ env.VM_IP }}
+          username: azureuser
+          key: ${{ env.SSH_KEY }}
+          script: |
+            docker pull ${{ env.ACR_NAME }}.azurecr.io/textutility:$GITHUB_SHA
+            docker stop blue || true
+            docker stop green || true
+            docker run -d --rm -p 8080:80 --name green ${{ env.ACR_NAME }}.azurecr.io/textutility:$GITHUB_SHA
+            sleep 10
+            docker run -d --rm -p 8081:80 --name blue ${{ env.ACR_NAME }}.azurecr.io/textutility:$GITHUB_SHA
+            docker exec blue curl -Is http://localhost:80 | head -1
+            docker exec green curl -Is http://localhost:80 | head -1
+            sudo iptables -t nat -A PREROUTING -p tcp --dport 80 -j REDIRECT --to-port 8080
