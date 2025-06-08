@@ -35,3 +35,6 @@ jobs:
           echo "Starting deployment..."
           sudo docker ps
           EOF
+      - name: Test SSH Access
+        run: |
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa -p 22 azureuser@52.226.18.83 "echo 'SSH connection successful!'"
