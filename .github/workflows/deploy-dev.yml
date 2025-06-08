@@ -1,71 +1,81 @@
-name: AKS Remote - Build & Deploy to Production
+name: AKS Remote - Production Deployment Pipeline
 
 on:
   push:
     branches: [aksremote]
-    paths:
-      - '**'  # Consider adding specific paths that should trigger deployment
 
 permissions:
-  id-token: write  # Required for OIDC authentication
-  contents: read   # Required for actions/checkout
+  id-token: write
+  contents: read
 
 jobs:
   deploy-to-production:
-    name: Build and Deploy to Production VM
+    name: Build and Deploy
     runs-on: ubuntu-latest
-    environment: production  # Consider adding environment protection rules
-    timeout-minutes: 15      # Prevent hanging deployments
+    environment: production
+    timeout-minutes: 20
 
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v3
         with:
-          fetch-depth: 0  # Get full git history if needed for versioning
+          fetch-depth: 0
 
-      - name: Setup SSH Authentication
+      - name: Configure SSH Access
         run: |
-          install -m 600 -D /dev/null ~/.ssh/id_rsa
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
-          # Add GitHub to known_hosts to prevent warnings
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          cat <<EOF > ~/.ssh/id_rsa
+          ${{ secrets.SSH_PRIVATE_KEY }}
+          EOF
+          chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -H 52.226.18.83 >> ~/.ssh/known_hosts
 
       - name: Validate SSH Connection
-        run: ssh -i ~/.ssh/id_rsa azureuser@52.226.18.83 "echo '✅ Verified SSH access to production VM'"
+        run: |
+          if ssh -i ~/.ssh/id_rsa azureuser@52.226.18.83 "echo '🟢 SSH connection successful'"; then
+            echo "SSH connection verified"
+          else
+            echo "::error::SSH connection failed"
+            exit 1
+          fi
 
-      - name: Deploy Application via SSH
+      - name: Deploy Application
         run: |
           ssh -i ~/.ssh/id_rsa azureuser@52.226.18.83 << 'DEPLOY_SCRIPT'
-          set -e  # Exit immediately on error
-          set -o pipefail  # Capture pipeline errors
+          set -euo pipefail
           
-          echo "🚀 Starting production deployment..."
+          echo "=== Starting Deployment ==="
           cd /home/azureuser/app || exit 1
           
-          # Clean up previous deployment
+          # Stop and remove existing container
           sudo docker stop my-app-container || true
           sudo docker rm my-app-container || true
           
-          # Build new image with timestamp for traceability
-          BUILD_DATE=$(date +%Y-%m-%dT%H:%M:%S%z)
-          sudo docker build -t my-app:latest -t my-app:$BUILD_DATE .
+          # Build new image
+          sudo docker build -t my-app:latest .
           
-          # Run container with health check and restart policy
+          # Run container with proper port mapping
           sudo docker run -d \
             --name my-app-container \
             -p 80:80 \
             --restart unless-stopped \
-            --health-cmd="curl -f http://localhost/ || exit 1" \
             my-app:latest
           
-          echo "🛡️ Running containers:"
-          sudo docker ps --format "table {{.ID}}\t{{.Names}}\t{{.Status}}\t{{.Ports}}"
-          
-          echo "✅ Successfully deployed application"
+          echo "=== Deployment Complete ==="
+          sudo docker ps
           DEPLOY_SCRIPT
 
       - name: Verify Deployment
         run: |
-          curl --retry 3 --retry-delay 5 --fail http://52.226.18.83/healthz || \
-          (echo "❌ Deployment verification failed" && exit 1)
-        if: always()  # Always run this step for deployment verification
+          echo "Waiting for application to start..."
+          sleep 20
+          
+          if ! curl --retry 5 --retry-delay 5 --fail http://52.226.18.83/; then
+            echo "::error::Application failed to start"
+            echo "Checking container logs..."
+            ssh -i ~/.ssh/id_rsa azureuser@52.226.18.83 "sudo docker logs my-app-container"
+            exit 1
+          else
+            echo "::notice::Application is running successfully"
+          fi
