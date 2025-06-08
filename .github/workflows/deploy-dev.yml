@@ -6,7 +6,8 @@ on:
 
 env:
   VM_IP: ${{ secrets.VM_IP_ADDRESS }}  # Fixed VM_IP reference
-  SSH_KEY: ${{ secrets.SSH_KEY }}
+  VAULT_NAME: MyKeyVaultRamzan12345  # Your Azure Key Vault
+  SECRET_NAME: SSHPrivateKey  # Name of the stored SSH key
 
 jobs:
   build-deploy:
@@ -15,6 +16,17 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
+      - name: Login to Azure
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Retrieve SSH Private Key from Azure Key Vault
+        run: |
+          SECRET_VALUE=$(az keyvault secret show --name $SECRET_NAME --vault-name $VAULT_NAME --query value -o tsv)
+          echo "$SECRET_VALUE" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+
       - name: Build Docker image
         run: |
           docker build -t textutility:$GITHUB_SHA .
@@ -22,9 +34,9 @@ jobs:
       - name: Deploy to VM
         uses: appleboy/ssh-action@master
         with:
-          host: ${{ env.VM_IP_ADDRESS }}  # Fixed VM_IP reference
+          host: ${{ env.VM_IP }}  # Fixed VM_IP reference
           username: azureuser
-          key: ${{ env.SSH_KEY }}
+          key: ~/.ssh/id_rsa  # Using the retrieved private key
           script: |
             docker stop blue || true
             docker stop green || true
