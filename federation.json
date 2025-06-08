@@ -1,0 +1,5 @@
+{
+  "name": "GitHubActionsOIDC",
+  "issuer": "https://token.actions.githubusercontent.com",
+  "subject": "repo:ramzan118/TextUtility1:ref:refs/heads/aksremote"
+}
