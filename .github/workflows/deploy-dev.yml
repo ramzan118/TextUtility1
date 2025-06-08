@@ -9,7 +9,6 @@ permissions:
 
 env:
   VM_IP: ${{ secrets.VM_IP_ADDRESS }}  # Fixed VM IP reference
-  PUBLIC_KEY_PATH: ~/.ssh/id_rsa.pub  # Directly using public key
 
 jobs:
   build-deploy:
@@ -18,13 +17,18 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
+      - name: Configure SSH Private Key for Authentication
+        run: |
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+
       - name: Open SSH Port 22 in Azure Network Security Group
         run: |
-          az network nsg rule create --resource-group <your-resource-group> --nsg-name <your-nsg-name> --name AllowSSH \
+          az network nsg rule create --resource-group MyResourceGroup --nsg-name MyNSG --name AllowSSH \
           --priority 100 --direction Inbound --access Allow --protocol Tcp --source-address-prefix <GitHub-Actions-IP> \
           --destination-port-range 22
 
-      - name: Use Public Key for SSH Authentication
+      - name: SSH into VM and Execute Deployment Commands
         run: |
           ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa -p 22 azureuser@52.226.18.83 << 'EOF'
           echo "Starting deployment..."
