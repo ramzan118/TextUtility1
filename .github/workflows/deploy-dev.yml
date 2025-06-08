@@ -8,7 +8,7 @@ permissions:
   id-token: write  # Required for authentication via OpenID Connect (OIDC)
 
 env:
-  VM_IP: ${{ secrets.VM_IP_ADDRESS }}  # Fixed VM_IP reference
+  VM_IP: ${{ secrets.VM_IP_ADDRESS }}  # Fixed VM IP reference
   VAULT_NAME: MyKeyVaultRamzan12345  # Your Azure Key Vault
   SECRET_NAME: SSHPrivateKey  # Name of the stored SSH key
 
@@ -19,39 +19,21 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Login to Azure
-        uses: azure/login@v1
-        with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}  # Updated authentication
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          auth-type: SERVICE_PRINCIPAL  # Changed to OIDC for federated credentials authentication
-          allow-no-subscriptions: true
-          environment: azurecloud
-          audience: api://AzureADTokenExchange
-
       - name: Retrieve SSH Private Key from Azure Key Vault
         run: |
-          SECRET_VALUE=$(az keyvault secret show --name $SECRET_NAME --vault-name $VAULT_NAME --query value -o tsv)
+          SECRET_VALUE=$(az keyvault secret show --name SSHPrivateKey --vault-name $VAULT_NAME --query value -o tsv)
           echo "$SECRET_VALUE" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
 
-      - name: Build Docker image
+      - name: Open SSH Port 22 in Azure Network Security Group
         run: |
-          docker build -t textutility:$GITHUB_SHA .
+          az network nsg rule create --resource-group <your-resource-group> --nsg-name <your-nsg-name> --name AllowSSH \
+          --priority 100 --direction Inbound --access Allow --protocol Tcp --source-address-prefix <GitHub-Actions-IP> \
+          --destination-port-range 22
 
-      - name: Deploy to VM
-        uses: appleboy/ssh-action@master
-        with:
-          host: ${{ env.VM_IP }}  # Fixed VM_IP reference
-          username: azureuser
-          key: ~/.ssh/id_rsa  # Using the retrieved private key
-          script: |
-            docker stop blue || true
-            docker stop green || true
-            docker run -d --rm -p 8080:80 --name green textutility:$GITHUB_SHA
-            sleep 10
-            docker run -d --rm -p 8081:80 --name blue textutility:$GITHUB_SHA
-            docker exec blue curl -Is http://localhost:80 | head -1
-            docker exec green curl -Is http://localhost:80 | head -1
-            sudo iptables -t nat -A PREROUTING -p tcp --dport 80 -j REDIRECT --to-port 8080
+      - name: SSH into VM and Execute Deployment Commands
+        run: |
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa -p 22 azureuser@52.226.18.83 << 'EOF'
+          echo "Starting deployment..."
+          sudo docker ps
+          EOF
