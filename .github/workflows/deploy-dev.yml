@@ -25,11 +25,10 @@ jobs:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}  # Updated authentication
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          auth-type: OIDC  # Changed to OIDC for federated credentials authentication
           allow-no-subscriptions: true
-          enable-AzPSSession: false
           environment: azurecloud
           audience: api://AzureADTokenExchange
-          auth-type: SERVICE_PRINCIPAL  # Using Service Principal authentication
 
       - name: Retrieve SSH Private Key from Azure Key Vault
         run: |
