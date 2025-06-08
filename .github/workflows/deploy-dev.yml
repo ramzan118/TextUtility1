@@ -25,7 +25,7 @@ jobs:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}  # Updated authentication
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          auth-type: OIDC  # Changed to OIDC for federated credentials authentication
+          auth-type: SERVICE_PRINCIPAL  # Changed to OIDC for federated credentials authentication
           allow-no-subscriptions: true
           environment: azurecloud
           audience: api://AzureADTokenExchange
