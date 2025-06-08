@@ -25,7 +25,7 @@ jobs:
 
       - name: Verify SSH Access to VM
         run: |
-          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa -p 22 azureuser@${{ env.VM_IP }} "echo 'SSH connection successful!'"
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa -p 22 azureuser@${{ secrets.VM_IP_ADDRESS }} "echo 'SSH connection successful!'"
 
       - name: Deploy Application via SSH
         run: |
