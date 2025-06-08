@@ -1,11 +1,11 @@
-name: Deploy to Dev
+name: Deploy to Production  # Updated workflow name
 
 on:
   push:
     branches: [aksremote]
 
 env:
-  VM_IP: ${{ secrets.VM_IP_ADDRESS }}
+  VM_IP: ${{ secrets.VM_IP_ADDRESS }}  # Fixed VM_IP reference
   SSH_KEY: ${{ secrets.SSH_KEY }}
 
 jobs:
@@ -22,7 +22,7 @@ jobs:
       - name: Deploy to VM
         uses: appleboy/ssh-action@master
         with:
-          host: ${{ env.VM_IP_ADDRESS }}
+          host: ${{ env.VM_IP }}  # Fixed VM_IP reference
           username: azureuser
           key: ${{ env.SSH_KEY }}
           script: |
