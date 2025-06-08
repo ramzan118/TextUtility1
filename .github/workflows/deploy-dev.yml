@@ -1,43 +1,71 @@
-name: Deploy to Production  # Updated workflow name
+name: AKS Remote - Build & Deploy to Production
 
 on:
   push:
     branches: [aksremote]
+    paths:
+      - '**'  # Consider adding specific paths that should trigger deployment
 
 permissions:
-  id-token: write  # Required for authentication via OpenID Connect (OIDC)
+  id-token: write  # Required for OIDC authentication
+  contents: read   # Required for actions/checkout
 
 jobs:
-  build-deploy:
+  deploy-to-production:
+    name: Build and Deploy to Production VM
     runs-on: ubuntu-latest
+    environment: production  # Consider adding environment protection rules
+    timeout-minutes: 15      # Prevent hanging deployments
+
     steps:
-      - name: Checkout code
+      - name: Checkout Repository
         uses: actions/checkout@v3
+        with:
+          fetch-depth: 0  # Get full git history if needed for versioning
 
-      - name: Configure SSH Private Key for Authentication
+      - name: Setup SSH Authentication
         run: |
-          mkdir -p ~/.ssh  # Ensure .ssh directory exists
+          install -m 600 -D /dev/null ~/.ssh/id_rsa
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
+          # Add GitHub to known_hosts to prevent warnings
+          ssh-keyscan -H 52.226.18.83 >> ~/.ssh/known_hosts
 
-      - name: Verify SSH Access to VM
-        run: |
-          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa -p 22 azureuser@52.226.18.83 "echo 'SSH connection successful!'"
+      - name: Validate SSH Connection
+        run: ssh -i ~/.ssh/id_rsa azureuser@52.226.18.83 "echo '✅ Verified SSH access to production VM'"
 
-      - name: Build and Run Docker Container via SSH
+      - name: Deploy Application via SSH
         run: |
-          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa -p 22 azureuser@52.226.18.83 << 'EOF'
-          echo "Starting deployment..."
+          ssh -i ~/.ssh/id_rsa azureuser@52.226.18.83 << 'DEPLOY_SCRIPT'
+          set -e  # Exit immediately on error
+          set -o pipefail  # Capture pipeline errors
           
-          # Navigate to the application directory
-          cd /home/azureuser/app
+          echo "🚀 Starting production deployment..."
+          cd /home/azureuser/app || exit 1
+          
+          # Clean up previous deployment
+          sudo docker stop my-app-container || true
+          sudo docker rm my-app-container || true
+          
+          # Build new image with timestamp for traceability
+          BUILD_DATE=$(date +%Y-%m-%dT%H:%M:%S%z)
+          sudo docker build -t my-app:latest -t my-app:$BUILD_DATE .
+          
+          # Run container with health check and restart policy
+          sudo docker run -d \
+            --name my-app-container \
+            -p 80:80 \
+            --restart unless-stopped \
+            --health-cmd="curl -f http://localhost/ || exit 1" \
+            my-app:latest
+          
+          echo "🛡️ Running containers:"
+          sudo docker ps --format "table {{.ID}}\t{{.Names}}\t{{.Status}}\t{{.Ports}}"
+          
+          echo "✅ Successfully deployed application"
+          DEPLOY_SCRIPT
 
-          # Build Docker image
-          sudo docker build -t my-app:latest .
-
-          # Run the container (change ports if needed)
-          sudo docker run -d -p 80:80 --name my-app-container my-app:latest
-
-          # List running containers
-          sudo docker ps
-          EOF
+      - name: Verify Deployment
+        run: |
+          curl --retry 3 --retry-delay 5 --fail http://52.226.18.83/healthz || \
+          (echo "❌ Deployment verification failed" && exit 1)
+        if: always()  # Always run this step for deployment verification
