@@ -22,7 +22,7 @@ jobs:
       - name: Deploy to VM
         uses: appleboy/ssh-action@master
         with:
-          host: ${{ env.VM_IP }}  # Fixed VM_IP reference
+          host: ${{ env.VM_IP_ADDRESS }}  # Fixed VM_IP reference
           username: azureuser
           key: ${{ env.SSH_KEY }}
           script: |
