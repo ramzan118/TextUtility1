@@ -1,87 +1,71 @@
-name: AKS Remote - Docker Build & Deployment Pipeline
+name: AKS Remote - Build & Deploy to Production
 
 on:
   push:
     branches: [aksremote]
     paths:
-      - '**'  # Triggers on all file changes (consider narrowing if needed)
+      - '**'  # Consider adding specific paths that should trigger deployment
 
 permissions:
-  id-token: write
-  contents: read
+  id-token: write  # Required for OIDC authentication
+  contents: read   # Required for actions/checkout
 
 jobs:
-  docker-build-deploy:
-    name: Docker Build and Deployment
+  deploy-to-production:
+    name: Build and Deploy to Production VM
     runs-on: ubuntu-latest
-    environment: 
-      name: production
-      url: http://52.226.18.83  # Adds environment URL in GitHub UI
-    timeout-minutes: 15
+    environment: production  # Consider adding environment protection rules
+    timeout-minutes: 15      # Prevent hanging deployments
 
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v3
         with:
-          fetch-depth: 0
+          fetch-depth: 0  # Get full git history if needed for versioning
 
-      - name: Configure SSH Access
+      - name: Setup SSH Authentication
         run: |
           install -m 600 -D /dev/null ~/.ssh/id_rsa
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          # Add GitHub to known_hosts to prevent warnings
           ssh-keyscan -H 52.226.18.83 >> ~/.ssh/known_hosts
-          echo "SSH configuration complete"
 
-      - name: Test Remote Connectivity
-        run: |
-          if ! ssh -i ~/.ssh/id_rsa azureuser@52.226.18.83 "echo '🟢 SSH connection successful'"; then
-            echo "🔴 SSH connection failed"
-            exit 1
-          fi
+      - name: Validate SSH Connection
+        run: ssh -i ~/.ssh/id_rsa azureuser@52.226.18.83 "echo '✅ Verified SSH access to production VM'"
 
-      - name: Execute Remote Deployment
+      - name: Deploy Application via SSH
         run: |
-          ssh -i ~/.ssh/id_rsa azureuser@52.226.18.83 << 'EOF'
-          set -euo pipefail
+          ssh -i ~/.ssh/id_rsa azureuser@52.226.18.83 << 'DEPLOY_SCRIPT'
+          set -e  # Exit immediately on error
+          set -o pipefail  # Capture pipeline errors
           
-          echo "=== Starting Deployment Process ==="
-          cd /home/azureuser/app || { echo "Directory not found"; exit 1; }
+          echo "🚀 Starting production deployment..."
+          cd /home/azureuser/app || exit 1
           
-          # Container lifecycle management
-          echo "Stopping existing containers..."
+          # Clean up previous deployment
           sudo docker stop my-app-container || true
           sudo docker rm my-app-container || true
           
-          # Build with version tracking
-          echo "Building new Docker image..."
-          BUILD_SHA=$(git rev-parse --short HEAD)
-          sudo docker build -t my-app:latest -t my-app:$BUILD_SHA .
+          # Build new image with timestamp for traceability
+          BUILD_DATE=$(date +%Y-%m-%dT%H:%M:%S%z)
+          sudo docker build -t my-app:latest -t my-app:$BUILD_DATE .
           
-          # Deployment
-          echo "Launching container..."
+          # Run container with health check and restart policy
           sudo docker run -d \
             --name my-app-container \
             -p 80:80 \
             --restart unless-stopped \
-            -e NODE_ENV=production \
+            --health-cmd="curl -f http://localhost/ || exit 1" \
             my-app:latest
           
-          echo "=== Deployment Summary ==="
-          echo "Image Versions:"
-          sudo docker images my-app --format "table {{.Tag}}\t{{.CreatedAt}}"
-          echo "Running Containers:"
-          sudo docker ps --format "table {{.ID}}\t{{.Names}}\t{{.Status}}"
-          EOF
-
-      - name: Health Check Verification
-        run: |
-          echo "Waiting 10 seconds for app to initialize..."
-          sleep 10
+          echo "🛡️ Running containers:"
+          sudo docker ps --format "table {{.ID}}\t{{.Names}}\t{{.Status}}\t{{.Ports}}"
           
-          if ! curl --retry 3 --retry-delay 5 --fail http://52.226.18.83/; then
-            echo "🔴 Initial health check failed - checking container logs..."
-            ssh -i ~/.ssh/id_rsa azureuser@52.226.18.83 "sudo docker logs my-app-container"
-            exit 1
-          else
-            echo "🟢 Application is responding"
-          fi
+          echo "✅ Successfully deployed application"
+          DEPLOY_SCRIPT
+
+      - name: Verify Deployment
+        run: |
+          curl --retry 3 --retry-delay 5 --fail http://52.226.18.83/healthz || \
+          (echo "❌ Deployment verification failed" && exit 1)
+        if: always()  # Always run this step for deployment verification
