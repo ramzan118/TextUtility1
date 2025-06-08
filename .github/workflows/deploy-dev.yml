@@ -23,18 +23,13 @@ jobs:
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
 
-      - name: Open SSH Port 22 in Azure Network Security Group
+      - name: Verify SSH Access to VM
         run: |
-          az network nsg rule create --resource-group MyResourceGroup --nsg-name MyNSG --name AllowSSH \
-          --priority 100 --direction Inbound --access Allow --protocol Tcp --source-address-prefix <GitHub-Actions-IP> \
-          --destination-port-range 22
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa -p 22 azureuser@${{ env.VM_IP }} "echo 'SSH connection successful!'"
 
-      - name: SSH into VM and Execute Deployment Commands
+      - name: Deploy Application via SSH
         run: |
-          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa -p 22 azureuser@52.226.18.83 << 'EOF'
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa -p 22 azureuser@${{ env.VM_IP }} << 'EOF'
           echo "Starting deployment..."
           sudo docker ps
           EOF
-      - name: Test SSH Access
-        run: |
-          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa -p 22 azureuser@52.226.18.83 "echo 'SSH connection successful!'"
