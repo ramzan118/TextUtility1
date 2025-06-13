@@ -1,0 +1,28 @@
+name: Deploy to AKS Serverless
+
+on:
+  push:
+    branches:
+      - aksremote
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v3
+
+    - name: Azure Login
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+    - name: Build Docker Image
+      run: |
+        docker build -t ${{ secrets.REGISTRY_NAME }}.azurecr.io/react-app:v1 .
+        docker push ${{ secrets.REGISTRY_NAME }}.azurecr.io/react-app:v1
+
+    - name: Deploy to AKS
+      run: |
+        az aks get-credentials --resource-group my-resource-group --name AKS-Serverless
+        kubectl apply -f k8s/deployment.yml
