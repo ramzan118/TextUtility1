@@ -17,12 +17,27 @@ jobs:
       with:
         creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-    - name: Build Docker Image
+    - name: Login to ACR
       run: |
-        docker build -t ${{ secrets.REGISTRY_NAME }}.azurecr.io/react-app:v1 .
-        docker push ${{ secrets.REGISTRY_NAME }}.azurecr.io/react-app:v1
+        # Get admin credentials
+        USERNAME=$(az acr credential show -n ${{ secrets.REGISTRY_NAME }} --query username -o tsv)
+        PASSWORD=$(az acr credential show -n ${{ secrets.REGISTRY_NAME }} --query passwords[0].value -o tsv)
+        
+        # Log in to Docker
+        docker login ${{ secrets.REGISTRY_NAME }}.azurecr.io -u "$USERNAME" -p "$PASSWORD"
+
+    - name: Build and Push Docker Image
+      run: |
+        docker build -t ${{ secrets.REGISTRY_NAME }}.azurecr.io/react-app:${{ github.sha }} .
+        docker push ${{ secrets.REGISTRY_NAME }}.azurecr.io/react-app:${{ github.sha }}
 
     - name: Deploy to AKS
       run: |
-        az aks get-credentials --resource-group my-resource-group --name AKS-Serverless
-        kubectl apply -f k8s/deployment.yml
+        az aks get-credentials \
+          --resource-group ${{ secrets.AKS_RESOURCE_GROUP }} \
+          --name ${{ secrets.AKS_CLUSTER_NAME }} \
+          --overwrite-existing
+        
+        kubectl set image deployment/react-app \
+          react-app=${{ secrets.REGISTRY_NAME }}.azurecr.io/react-app:${{ github.sha }} \
+          -n default
