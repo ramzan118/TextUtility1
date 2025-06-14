@@ -22,10 +22,12 @@ jobs:
         USERNAME=$(az acr credential show -n ${{ secrets.REGISTRY_NAME }} --query username -o tsv)
         PASSWORD=$(az acr credential show -n ${{ secrets.REGISTRY_NAME }} --query passwords[0].value -o tsv)
         docker login ${{ secrets.REGISTRY_NAME }}.azurecr.io -u "$USERNAME" -p "$PASSWORD"
+
     - name: Build and Push Docker Image
       run: |
         docker build -t ${{ secrets.REGISTRY_NAME }}.azurecr.io/react-app:${{ github.sha }} .
         docker push ${{ secrets.REGISTRY_NAME }}.azurecr.io/react-app:${{ github.sha }}
+
     - name: Deploy to AKS
       run: |
         # Retrieve AKS credentials
@@ -34,7 +36,24 @@ jobs:
           --name ${{ secrets.AKS_CLUSTER_NAME }} \
           --overwrite-existing
         
-        # Create deployment 
+        # Ensure AKS has access to ACR
+        az aks update -n ${{ secrets.AKS_CLUSTER_NAME }} \
+          -g ${{ secrets.AKS_RESOURCE_GROUP }} \
+          --attach-acr ${{ secrets.REGISTRY_NAME }}
+        
+        # Verify YAML syntax
+        yamllint deployment.yaml service.yaml || true
+        
+        # Replace image placeholder
+        sed -i "s|aksacrnew1.azurecr.io/react-app:681a5d094ba42db4d3fd7375c823663a98d3d02b|${{ secrets.REGISTRY_NAME }}.azurecr.io/react-app:${{ github.sha }}|g" deployment.yaml
+        
+        # Apply Kubernetes manifests
         kubectl apply -f deployment.yaml
         kubectl apply -f service.yaml
         
+        # Wait for rollout
+        kubectl rollout status deployment/react-app -n default --timeout=180s
+        
+        # Get debug information
+        kubectl get pods -n default
+        kubectl describe deployment react-app -n default
