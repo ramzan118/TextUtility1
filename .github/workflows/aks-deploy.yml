@@ -35,6 +35,6 @@ jobs:
           --overwrite-existing
         
         # Create deployment 
-        kubectl apply -f deploymeny.yaml
+        kubectl apply -f deployment.yaml
         kubectl apply -f service.yaml
         
