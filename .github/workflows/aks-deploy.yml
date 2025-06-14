@@ -19,11 +19,8 @@ jobs:
 
     - name: Login to ACR
       run: |
-        # Get admin credentials
         USERNAME=$(az acr credential show -n ${{ secrets.REGISTRY_NAME }} --query username -o tsv)
         PASSWORD=$(az acr credential show -n ${{ secrets.REGISTRY_NAME }} --query passwords[0].value -o tsv)
-        
-        # Log in to Docker
         docker login ${{ secrets.REGISTRY_NAME }}.azurecr.io -u "$USERNAME" -p "$PASSWORD"
 
     - name: Build and Push Docker Image
@@ -33,11 +30,13 @@ jobs:
 
     - name: Deploy to AKS
       run: |
+        # Retrieve AKS credentials
         az aks get-credentials \
           --resource-group ${{ secrets.AKS_RESOURCE_GROUP }} \
           --name ${{ secrets.AKS_CLUSTER_NAME }} \
           --overwrite-existing
         
+        # Update deployment
         kubectl set image deployment/react-app \
           react-app=${{ secrets.REGISTRY_NAME }}.azurecr.io/react-app:${{ github.sha }} \
           -n default
