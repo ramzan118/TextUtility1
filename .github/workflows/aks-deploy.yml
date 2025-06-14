@@ -1,46 +1,134 @@
-- name: Deploy to AKS
-  run: |
-    # Retrieve AKS credentials
-    az aks get-credentials \
-      --resource-group ${{ secrets.AKS_RESOURCE_GROUP }} \
-      --name ${{ secrets.AKS_CLUSTER_NAME }} \
-      --overwrite-existing
-    
-    # Ensure AKS has access to ACR
-    az aks update -n ${{ secrets.AKS_CLUSTER_NAME }} \
-      -g ${{ secrets.AKS_RESOURCE_GROUP }} \
-      --attach-acr ${{ secrets.REGISTRY_NAME }}
-    
-    # Create deployment if not exists
-    if ! kubectl get deployment react-app -n default; then
-      kubectl create deployment react-app \
-        --image=${{ secrets.REGISTRY_NAME }}.azurecr.io/react-app:${{ github.sha }} \
-        --replicas=1 \  # Start with 1 replica for debugging
-        -n default
-    fi
-    
-    # Update deployment
-    kubectl set image deployment/react-app \
-      react-app=${{ secrets.REGISTRY_NAME }}.azurecr.io/react-app:${{ github.sha }} \
-      -n default
-    
-    # Wait for rollout with timeout
-    kubectl rollout status deployment/react-app -n default --timeout=120s
-    
-    # Get debug information if rollout fails
-    if [ $? -ne 0 ]; then
-      echo "::error::Deployment failed!"
-      echo "=== Pods ==="
-      kubectl get pods -n default -o wide
-      
-      echo "=== Events ==="
-      kubectl get events -n default --sort-by='.lastTimestamp'
-      
-      echo "=== Pod Logs ==="
-      for pod in $(kubectl get pods -n default -l app=react-app -o jsonpath='{.items[*].metadata.name}'); do
-        echo "Logs for $pod:"
-        kubectl logs $pod -n default
-      done
-      
-      exit 1
-    fi
+name: Deploy to AKS Serverless
+
+on:
+  push:
+    branches:
+      - aksremote
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v3
+
+    - name: Azure Login
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+    - name: Login to ACR
+      run: |
+        # Use service principal for ACR login
+        az acr login --name ${{ secrets.REGISTRY_NAME }} \
+          --username ${{ secrets.SP_CLIENT_ID }} \
+          --password ${{ secrets.SP_CLIENT_SECRET }}
+
+    - name: Build and Push Docker Image
+      run: |
+        docker build -t ${{ secrets.REGISTRY_NAME }}.azurecr.io/react-app:${{ github.sha }} .
+        docker push ${{ secrets.REGISTRY_NAME }}.azurecr.io/react-app:${{ github.sha }}
+
+    - name: Deploy to AKS
+      run: |
+        # Retrieve AKS credentials
+        az aks get-credentials \
+          --resource-group ${{ secrets.AKS_RESOURCE_GROUP }} \
+          --name ${{ secrets.AKS_CLUSTER_NAME }} \
+          --overwrite-existing
+        
+        # Ensure AKS has access to ACR
+        az aks update -n ${{ secrets.AKS_CLUSTER_NAME }} \
+          -g ${{ secrets.AKS_RESOURCE_GROUP }} \
+          --attach-acr ${{ secrets.REGISTRY_NAME }}
+        
+        # Apply deployment manifest
+        cat <<EOF | kubectl apply -f -
+        apiVersion: apps/v1
+        kind: Deployment
+        metadata:
+          name: react-app
+          namespace: default
+          labels:
+            app: react-app
+        spec:
+          replicas: 3
+          strategy:
+            type: RollingUpdate
+            rollingUpdate:
+              maxSurge: 1
+              maxUnavailable: 0
+          selector:
+            matchLabels:
+              app: react-app
+          template:
+            metadata:
+              labels:
+                app: react-app
+            spec:
+              containers:
+              - name: react-app
+                image: ${{ secrets.REGISTRY_NAME }}.azurecr.io/react-app:${{ github.sha }}
+                ports:
+                - containerPort: 80
+                resources:
+                  limits:
+                    cpu: "500m"
+                    memory: "512Mi"
+                  requests:
+                    cpu: "100m"
+                    memory: "128Mi"
+                livenessProbe:
+                  httpGet:
+                    path: /
+                    port: 80
+                  initialDelaySeconds: 10
+                  periodSeconds: 5
+                readinessProbe:
+                  httpGet:
+                    path: /
+                    port: 80
+                  initialDelaySeconds: 5
+                  periodSeconds: 5
+        EOF
+        
+        # Wait for rollout with timeout
+        kubectl rollout status deployment/react-app -n default --timeout=180s
+        
+        # Get debug information if rollout fails
+        if [ $? -ne 0 ]; then
+          echo "::error::Deployment failed!"
+          echo "=== Pods ==="
+          kubectl get pods -n default -o wide
+          
+          echo "=== Events ==="
+          kubectl get events -n default --sort-by='.lastTimestamp' --field-selector type!=Normal
+          
+          echo "=== Pod Logs ==="
+          for pod in $(kubectl get pods -n default -l app=react-app -o jsonpath='{.items[*].metadata.name}'); do
+            echo "Logs for $pod:"
+            kubectl logs $pod -n default --tail=100
+          done
+          
+          echo "=== Describe Deployment ==="
+          kubectl describe deployment react-app -n default
+          
+          exit 1
+        fi
+        
+        # Create service if not exists
+        kubectl apply -f - <<EOF
+        apiVersion: v1
+        kind: Service
+        metadata:
+          name: react-app-service
+          namespace: default
+        spec:
+          selector:
+            app: react-app
+          ports:
+            - protocol: TCP
+              port: 80
+              targetPort: 80
+          type: LoadBalancer
+        EOF
