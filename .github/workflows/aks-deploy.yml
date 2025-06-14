@@ -36,7 +36,18 @@ jobs:
           --name ${{ secrets.AKS_CLUSTER_NAME }} \
           --overwrite-existing
         
+        # Create deployment if not exists
+        if ! kubectl get deployment react-app -n default; then
+          kubectl create deployment react-app \
+            --image=${{ secrets.REGISTRY_NAME }}.azurecr.io/react-app:${{ github.sha }} \
+            --replicas=3 \
+            -n default
+        fi
+        
         # Update deployment
         kubectl set image deployment/react-app \
           react-app=${{ secrets.REGISTRY_NAME }}.azurecr.io/react-app:${{ github.sha }} \
           -n default
+        
+        # Verify deployment
+        kubectl rollout status deployment/react-app -n default
