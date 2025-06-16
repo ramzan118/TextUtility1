@@ -30,32 +30,37 @@ jobs:
 
     - name: Deploy to AKS
       run: |
-        # Retrieve AKS credentials
         az aks get-credentials \
           --resource-group ${{ secrets.AKS_RESOURCE_GROUP }} \
           --name ${{ secrets.AKS_CLUSTER_NAME }} \
           --overwrite-existing
 
-        # Ensure AKS has access to ACR
         az aks update -n ${{ secrets.AKS_CLUSTER_NAME }} \
           -g ${{ secrets.AKS_RESOURCE_GROUP }} \
           --attach-acr ${{ secrets.REGISTRY_NAME }}
 
-        # Validate YAML files
         yamllint deployment.yaml service.yaml || true
 
-        # Replace image placeholder
         sed -i "s|aksacrnew1.azurecr.io/react-app:681a5d094ba42db4d3fd7375c823663a98d3d02b|${{ secrets.REGISTRY_NAME }}.azurecr.io/react-app:${{ github.sha }}|g" deployment.yaml
 
-        # Apply Kubernetes manifests
         kubectl apply -f deployment.yaml
         kubectl apply -f service.yaml
 
-        # Wait for rollout
         kubectl rollout status deployment/react-app -n default --timeout=180s
 
-        # Get debug information
         kubectl get pods -n default
+
+    - name: Slack Notification Success
+      if: ${{ job.status == 'success' }}
+      uses: slackapi/slack-github-action@v1
+      with:
+        payload: |
+          {
+            "text": ":white_check_mark: *Deployment Succeeded* \n*Environment*: AKS Serverless \n*Commit*: ${{ github.sha }} \n*Logs*: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+            "channel": "ecs-fargate-deployment-notifications"
+          }
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
 
     - name: Slack Notification Failure
       if: ${{ job.status == 'failure' }}
