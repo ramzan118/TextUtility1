@@ -1,4 +1,4 @@
-name: Blue-Green Deployment to AKS Serverless
+name: Deploy to AKS Serverless
 
 on:
   push:
@@ -28,56 +28,37 @@ jobs:
         docker build -t ${{ secrets.REGISTRY_NAME }}.azurecr.io/react-app:${{ github.sha }} .
         docker push ${{ secrets.REGISTRY_NAME }}.azurecr.io/react-app:${{ github.sha }}
 
-    - name: Setup Kubernetes Context
+    - name: Deploy to AKS
       run: |
+        # Retrieve AKS credentials
         az aks get-credentials \
           --resource-group ${{ secrets.AKS_RESOURCE_GROUP }} \
           --name ${{ secrets.AKS_CLUSTER_NAME }} \
           --overwrite-existing
-        
+
+        # Ensure AKS has access to ACR
         az aks update -n ${{ secrets.AKS_CLUSTER_NAME }} \
           -g ${{ secrets.AKS_RESOURCE_GROUP }} \
           --attach-acr ${{ secrets.REGISTRY_NAME }}
 
-    - name: Blue-Green Deployment
-      id: deploy
-      run: |
-        # Determine active deployment
-        CURRENT_COLOR=$(kubectl get svc react-app-service -o jsonpath='{.spec.selector.color}' || echo "blue")
-        NEW_COLOR=$([ "$CURRENT_COLOR" = "blue" ] && echo "green" || echo "blue")
-        
-        # Deploy new version
-        sed "s|REPLACE_IMAGE|${{ secrets.REGISTRY_NAME }}.azurecr.io/react-app:${{ github.sha }}|g" deployment-template.yaml | \
-          sed "s/REPLACE_COLOR/$NEW_COLOR/g" | \
-          kubectl apply -f -
+        # Validate YAML files
+        yamllint deployment.yaml service.yaml || true
 
-        # Wait for new deployment to be ready
-        kubectl rollout status deployment/react-app-$NEW_COLOR --timeout=180s
-        
-        # Update service to new color (fixed JSON patch)
-        kubectl patch svc react-app-service -p "{\"spec\":{\"selector\":{\"color\":\"$NEW_COLOR\"}}}"
-        
-        # Scale down previous deployment
-        kubectl scale deployment/react-app-$CURRENT_COLOR --replicas=0
-        
-        # Set outputs
-        echo "NEW_COLOR=$NEW_COLOR" >> $GITHUB_OUTPUT
-        echo "status=success" >> $GITHUB_OUTPUT
+        # Replace image placeholder
+        sed -i "s|aksacrnew1.azurecr.io/react-app:681a5d094ba42db4d3fd7375c823663a98d3d02b|${{ secrets.REGISTRY_NAME }}.azurecr.io/react-app:${{ github.sha }}|g" deployment.yaml
 
-    - name: Slack Notification Success
-      if: steps.deploy.outputs.status == 'success'
-      uses: slackapi/slack-github-action@v1
-      with:
-        payload: |
-          {
-            "text": ":white_check_mark: *Deployment Succeeded* \n*Environment*: AKS Serverless \n*Commit*: ${{ github.sha }} \n*New Color*: ${{ steps.deploy.outputs.NEW_COLOR }} \n*Logs*: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
-            "channel": "ecs-fargate-deployment-notifications"
-          }
-      env:
-        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        # Apply Kubernetes manifests
+        kubectl apply -f deployment.yaml
+        kubectl apply -f service.yaml
+
+        # Wait for rollout
+        kubectl rollout status deployment/react-app -n default --timeout=180s
+
+        # Get debug information
+        kubectl get pods -n default
 
     - name: Slack Notification Failure
-      if: failure()
+      if: ${{ job.status == 'failure' }}
       uses: slackapi/slack-github-action@v1
       with:
         payload: |
