@@ -40,11 +40,12 @@ jobs:
           --attach-acr ${{ secrets.REGISTRY_NAME }}
 
     - name: Blue-Green Deployment
+      id: deploy
       run: |
         # Determine active deployment
         CURRENT_COLOR=$(kubectl get svc react-app-service -o jsonpath='{.spec.selector.color}' || echo "blue")
         NEW_COLOR=$([ "$CURRENT_COLOR" = "blue" ] && echo "green" || echo "blue")
-
+        
         # Deploy new version
         sed "s|REPLACE_IMAGE|${{ secrets.REGISTRY_NAME }}.azurecr.io/react-app:${{ github.sha }}|g" deployment-template.yaml | \
           sed "s/REPLACE_COLOR/$NEW_COLOR/g" | \
@@ -52,38 +53,36 @@ jobs:
 
         # Wait for new deployment to be ready
         kubectl rollout status deployment/react-app-$NEW_COLOR --timeout=180s
-
+        
         # Update service to new color
         kubectl patch svc react-app-service -p "{\"spec\":{\"selector\":{\"color\":\"$NEW_COLOR\"}}}"
-
+        
         # Scale down previous deployment
-        kubectl scale deployment react-app-$CURRENT_COLOR --replicas=0
-
-        # Send success notification
-        echo "DEPLOYMENT_STATUS=success" >> $GITHUB_ENV
-        echo "NEW_COLOR=$NEW_COLOR" >> $GITHUB_ENV
-      env:
-        KUBECONFIG: ${{ secrets.KUBECONFIG }}
+        kubectl scale deployment/react-app-$CURRENT_COLOR --replicas=0
+        
+        # Set outputs
+        echo "NEW_COLOR=$NEW_COLOR" >> $GITHUB_OUTPUT
+        echo "status=success" >> $GITHUB_OUTPUT
 
     - name: Slack Notification Success
-      if: ${{ success() }}
+      if: steps.deploy.outputs.status == 'success'
       uses: slackapi/slack-github-action@v1
       with:
         payload: |
           {
-            "text": ":white_check_mark: *Deployment Succeeded* \n*Environment*: AKS Serverless \n*Commit*: ${{ github.sha }} \n*New Color*: ${{ env.NEW_COLOR }} \n*Duration*: ${{ job.steps.*.conclusion }}",
+            "text": ":white_check_mark: *Deployment Succeeded* \n*Environment*: AKS Serverless \n*Commit*: ${{ github.sha }} \n*New Color*: ${{ steps.deploy.outputs.NEW_COLOR }} \n*Logs*: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
             "channel": "ecs-fargate-deployment-notifications"
           }
       env:
         SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
 
     - name: Slack Notification Failure
-      if: ${{ failure() }}
+      if: failure()
       uses: slackapi/slack-github-action@v1
       with:
         payload: |
           {
-            "text": ":x: *Deployment Failed* \n*Environment*: AKS Serverless \n*Commit*: ${{ github.sha }} \n*Error*: ${{ failure() }} \n*Logs*: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+            "text": ":x: *Deployment Failed* \n*Environment*: AKS Serverless \n*Commit*: ${{ github.sha }} \n*Logs*: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
             "channel": "ecs-fargate-deployment-notifications"
           }
       env:
