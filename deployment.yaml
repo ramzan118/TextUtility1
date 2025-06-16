@@ -1,44 +1,34 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: react-app
-  namespace: default
+  name: react-app-REPLACE_COLOR
 spec:
   replicas: 3
-  strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxSurge: 1
-      maxUnavailable: 0
   selector:
     matchLabels:
       app: react-app
+      color: REPLACE_COLOR
   template:
     metadata:
       labels:
         app: react-app
+        color: REPLACE_COLOR
     spec:
       containers:
       - name: react-app
-        image: aksacrnew1.azurecr.io/react-app:681a5d094ba42db4d3fd7375c823663a98d3d02b
+        image: REPLACE_IMAGE
         ports:
         - containerPort: 80
-        resources:
-          limits:
-            cpu: "500m"
-            memory: "512Mi"
-          requests:
-            cpu: "100m"
-            memory: "128Mi"
-        livenessProbe:
-          httpGet:
-            path: /
-            port: 80
-          initialDelaySeconds: 10
-          periodSeconds: 5
         readinessProbe:
           httpGet:
             path: /
             port: 80
           initialDelaySeconds: 5
           periodSeconds: 5
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+          limits:
+            cpu: "200m"
+            memory: "256Mi"
