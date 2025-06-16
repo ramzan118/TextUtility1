@@ -1,0 +1,25 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: react-app-REPLACE_COLOR
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: react-app
+      color: REPLACE_COLOR
+  template:
+    metadata:
+      labels:
+        app: react-app
+        color: REPLACE_COLOR
+    spec:
+      containers:
+      - name: react-app
+        image: REPLACE_IMAGE
+        ports:
+        - containerPort: 80
+        resources:
+          limits:
+            memory: "128Mi"
+            cpu: "500m"
