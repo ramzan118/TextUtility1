@@ -1,4 +1,4 @@
-^# Stage 1: Build frontend
+# Stage 1: Build frontend
 FROM node:18-alpine AS client-builder
 WORKDIR /app
 COPY package*.json ./
@@ -9,7 +9,7 @@ RUN npm run build
 # Stage 2: Build backend
 FROM node:18-alpine AS server-builder
 WORKDIR /app
-COPY server/package*.json .
+COPY server/package*.json ./
 RUN npm install
 COPY server .
 
@@ -27,8 +27,10 @@ COPY --from=server-builder /app .
 RUN npm install --production
 
 # Environment variables
-ENV MONGODB_URI=${MONGODB_URI}
 ENV PORT=5000
+
+# Expose port
+EXPOSE 5000
 
 # Start command
 CMD ["node", "index.js"]

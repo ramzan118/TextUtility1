@@ -19,57 +19,47 @@ jobs:
 
       - name: Login to ACR
         run: |
-          USERNAME=$(az acr credential show -n ${{ secrets.REGISTRY_NAME }} --query username -o tsv)
-          PASSWORD=$(az acr credential show -n ${{ secrets.REGISTRY_NAME }} --query passwords[0].value -o tsv)
-          docker login ${{ secrets.REGISTRY_NAME }}.azurecr.io -u "$USERNAME" -p "$PASSWORD"
+          az acr login --name ${{ secrets.REGISTRY_NAME }} --expose-token
+          # More secure login method
 
       - name: Build and Push Docker Image
         run: |
           docker build -t ${{ secrets.REGISTRY_NAME }}.azurecr.io/react-app:${{ github.sha }} .
           docker push ${{ secrets.REGISTRY_NAME }}.azurecr.io/react-app:${{ github.sha }}
 
-      - name: Deploy to AKS
+      - name: Setup Kubernetes
         run: |
           az aks get-credentials \
             --resource-group ${{ secrets.AKS_RESOURCE_GROUP }} \
             --name ${{ secrets.AKS_CLUSTER_NAME }} \
             --overwrite-existing
-
+          
           az aks update -n ${{ secrets.AKS_CLUSTER_NAME }} \
             -g ${{ secrets.AKS_RESOURCE_GROUP }} \
             --attach-acr ${{ secrets.REGISTRY_NAME }}
 
-          yamllint deployment.yaml service.yaml || true
-
-          sed -i "s|aksacrnew1.azurecr.io/react-app:681a5d094ba42db4d3fd7375c823663a98d3d02b|${{ secrets.REGISTRY_NAME }}.azurecr.io/react-app:${{ github.sha }}|g" deployment.yaml
-
+      - name: Deploy to Kubernetes
+        run: |
+          # Update image in deployment.yaml
+          IMAGE="${{ secrets.REGISTRY_NAME }}.azurecr.io/react-app:${{ github.sha }}"
+          sed -i "s|image: .*|image: $IMAGE|g" deployment.yaml
+          
+          # Apply configuration
           kubectl apply -f deployment.yaml
           kubectl apply -f service.yaml
-
+          
+          # Verify deployment
           kubectl rollout status deployment/react-app -n default --timeout=180s
-
           kubectl get pods -n default
 
-      - name: Slack Notification Success
-        if: ${{ job.status == 'success' }}
+      - name: Slack Notification
         uses: slackapi/slack-github-action@v1
         with:
           payload: |
             {
-              "text": ":white_check_mark: *Deployment Succeeded* \n*Environment*: AKS Serverless \n*Commit*: ${{ github.sha }} \n*By*: ${{ github.actor }} \n*Logs*: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+              "text": "${{ job.status == 'success' ? ':white_check_mark: Deployment Succeeded' : ':x: Deployment Failed' }} \n*Environment*: AKS Serverless \n*Commit*: ${{ github.sha }} \n*By*: ${{ github.actor }} \n*Logs*: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
               "channel": "ecs-fargate-deployment-notifications"
             }
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-
-      - name: Slack Notification Failure
-        if: ${{ job.status == 'failure' }}
-        uses: slackapi/slack-github-action@v1
-        with:
-          payload: |
-            {
-              "text": ":x: *Deployment Failed* \n*Environment*: AKS Serverless \n*Commit*: ${{ github.sha }} \n*By*: ${{ github.actor }} \n*Logs*: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
-              "channel": "ecs-fargate-deployment-notifications"
-            }
+        if: always()  # Always send notification
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
