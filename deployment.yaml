@@ -20,9 +20,15 @@ spec:
     spec:
       containers:
       - name: react-app
-        image: aksacrnew1.azurecr.io/react-app:681a5d094ba42db4d3fd7375c823663a98d3d02b
+        image: aksacrnew1.azurecr.io/react-app:latest
         ports:
-        - containerPort: 80
+        - containerPort: 5000  # Backend port
+        env:
+        - name: MONGODB_URI
+          valueFrom:
+            secretKeyRef:
+              name: cosmosdb-secret
+              key: connectionString
         resources:
           limits:
             cpu: "500m"
@@ -32,12 +38,13 @@ spec:
             memory: "128Mi"
         livenessProbe:
           httpGet:
-            path: /
-            port: 80
+            path: /api/healthz  # Add health check endpoint
+            port: 5000
           initialDelaySeconds: 10
           periodSeconds: 5
         readinessProbe:
           httpGet:
-            path: /
-            port: 80
-          initialDelaySeconds: 5
+            path: /api/healthz
+            port: 5000
+      imagePullSecrets:
+      - name: acr-secret  # Ensure this secret exists
