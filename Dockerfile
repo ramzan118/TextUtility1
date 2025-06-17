@@ -1,27 +1,27 @@
-# Build frontend
+^# Stage 1: Build frontend
 FROM node:18-alpine AS client-builder
-WORKDIR /app/client
-COPY client/package*.json ./
+WORKDIR /app
+COPY package*.json ./
 RUN npm install
-COPY client/ ./
+COPY . .
 RUN npm run build
 
-# Build backend
+# Stage 2: Build backend
 FROM node:18-alpine AS server-builder
-WORKDIR /app/server
-COPY server/package*.json ./
+WORKDIR /app
+COPY server/package*.json .
 RUN npm install
-COPY server/ ./
+COPY server .
 
-# Final image
+# Stage 3: Final image
 FROM node:18-alpine
 WORKDIR /app
 
 # Copy frontend build
-COPY --from=client-builder /app/client/build ./client/build
+COPY --from=client-builder /app/build ./public
 
 # Copy backend
-COPY --from=server-builder /app/server ./
+COPY --from=server-builder /app .
 
 # Install production dependencies
 RUN npm install --production
@@ -29,9 +29,6 @@ RUN npm install --production
 # Environment variables
 ENV MONGODB_URI=${MONGODB_URI}
 ENV PORT=5000
-
-# Serve frontend from backend
-COPY --from=client-builder /app/client/build ./public
 
 # Start command
 CMD ["node", "index.js"]

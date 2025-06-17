@@ -13,15 +13,30 @@ mongoose.connect(process.env.MONGODB_URI, {
   useUnifiedTopology: true
 });
 
-// Example API endpoint
+// Define schema and model
+const itemSchema = new mongoose.Schema({
+  name: String,
+  value: Number,
+  content: String
+}, { timestamps: true });
+
+const Item = mongoose.model('Item', itemSchema);
+
+// API Endpoint
 app.get('/api/data', async (req, res) => {
   try {
-    // Replace with your actual DB operations
-    res.json({ message: "Data from Cosmos DB", items: [] });
+    const items = await Item.find().sort({ createdAt: -1 }).limit(20);
+    res.json({ items });
   } catch (err) {
-    res.status(500).send(err.message);
+    console.error('Database error:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
+// Serve React frontend
+app.use(express.static('public'));
+
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`Backend running on port ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
