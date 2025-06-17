@@ -20,7 +20,6 @@ jobs:
       - name: Login to ACR
         run: |
           az acr login --name ${{ secrets.REGISTRY_NAME }} --expose-token
-          # More secure login method
 
       - name: Build and Push Docker Image
         run: |
@@ -52,14 +51,26 @@ jobs:
           kubectl rollout status deployment/react-app -n default --timeout=180s
           kubectl get pods -n default
 
-      - name: Slack Notification
+      - name: Slack Notification Success
+        if: success()
         uses: slackapi/slack-github-action@v1
         with:
           payload: |
             {
-              "text": "${{ job.status == 'success' ? ':white_check_mark: Deployment Succeeded' : ':x: Deployment Failed' }} \n*Environment*: AKS Serverless \n*Commit*: ${{ github.sha }} \n*By*: ${{ github.actor }} \n*Logs*: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+              "text": ":white_check_mark: *Deployment Succeeded* \n*Environment*: AKS Serverless \n*Commit*: ${{ github.sha }} \n*By*: ${{ github.actor }} \n*Logs*: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
               "channel": "ecs-fargate-deployment-notifications"
             }
-        if: always()  # Always send notification
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      - name: Slack Notification Failure
+        if: failure()
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "text": ":x: *Deployment Failed* \n*Environment*: AKS Serverless \n*Commit*: ${{ github.sha }} \n*By*: ${{ github.actor }} \n*Logs*: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+              "channel": "ecs-fargate-deployment-notifications"
+            }
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

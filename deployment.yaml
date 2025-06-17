@@ -20,9 +20,9 @@ spec:
     spec:
       containers:
       - name: react-app
-        image: aksacrnew1.azurecr.io/react-app:latest
+        image: aksacrnew1.azurecr.io/react-app:681a5d094ba42db4d3fd7375c823663a98d3d02b  # Will be replaced by CI/CD
         ports:
-        - containerPort: 5000  # Backend port
+        - containerPort: 5000
         env:
         - name: MONGODB_URI
           valueFrom:
@@ -38,7 +38,7 @@ spec:
             memory: "128Mi"
         livenessProbe:
           httpGet:
-            path: /api/healthz  # Add health check endpoint
+            path: /api/healthz
             port: 5000
           initialDelaySeconds: 10
           periodSeconds: 5
@@ -47,4 +47,4 @@ spec:
             path: /api/healthz
             port: 5000
       imagePullSecrets:
-      - name: acr-secret  # Ensure this secret exists
+      - name: acr-secret
